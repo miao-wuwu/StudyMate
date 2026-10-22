@@ -4,6 +4,14 @@ StudyMate 是一个面向个人学习场景的全栈学习管理平台，帮助�
 
 本项目使用 React + TypeScript 构建前端，使用 Python + FastAPI 构建后端，并通过 SQLite 持久化存储学习数据。项目主要用于学习和实践前后端分离开发、REST API 设计、数据库操作和前端状态管理。
 
+## 项目预览
+
+### 学习统计仪表盘
+
+![StudyMate 学习统计仪表盘](screenshots/dashboard.png)
+
+StudyMate 提供学习笔记管理、学习任务规划、每日打卡、专注计时和学习统计等功能，帮助用户记录学习过程并追踪学习进度。
+
 ## 项目功能
 
 ### 1. 学习笔记管理
