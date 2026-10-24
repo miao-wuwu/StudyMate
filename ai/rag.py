@@ -50,7 +50,7 @@ def ingest(title: str, text: str, source: str = "") -> dict:
     pieces = store.chunk_text(text)
     if not pieces:
         raise ValueError("没有可入库的文本（内容为空？）")
-    vectors = llm.embed(pieces)
+    vectors = llm.embed(pieces, kind="document")
     return store.add_document(title=title, content=text, source=source, vectors=vectors)
 
 
@@ -71,7 +71,7 @@ def ask(question: str, top_k: int | None = None) -> dict:
         return {"answer": reply, "sources": [], "mode": "chat"}
 
     top_k = top_k or config.TOP_K
-    query_vector = llm.embed([question])[0]
+    query_vector = llm.embed([question], kind="query")[0]
     hits = store.search(query_vector, top_k=top_k)
 
     context_lines = []

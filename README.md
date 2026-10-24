@@ -249,6 +249,7 @@ cd frontend; npm install; npm run dev
 - `OLLAMA_MODEL` / `OLLAMA_EMBED_MODEL` / `OLLAMA_HOST`
 - `NUM_CTX`、`KEEP_ALIVE`（空闲多久卸载模型，默认 5m）、`TEMPERATURE`
 - `CHUNK_SIZE`、`CHUNK_OVERLAP`、`TOP_K`
+- `LLM_HISTORY_MAX_CHARS`（默认 6000）、`LLM_HISTORY_MAX_MESSAGES`（默认 20）：多轮对话的历史预算，超出后从最早的对话开始丢弃，并在 system 提示里加一句「更早的对话已省略」，避免长对话把 `num_ctx` 撑爆
 - 切到 `deepseek` 时需要 `DEEPSEEK_API_KEY`（放 `.env`，已在 `.gitignore` 中忽略）
 
 ### 显存与性能参考
@@ -267,7 +268,7 @@ RTX 4060 Laptop（8 GB）实测：Qwen2.5-3B Q4 占显存约 2.4 GB，生成速�
 
 ### 效果评估
 
-`scripts/eval_ai.py` 用固定题集（13 道问答 + 3 轮出题）跑一遍端到端流程，结果写入 `docs/eval-report.md`：
+`scripts/eval_ai.py` 用固定题集（33 道问答 + 3 轮出题）跑一遍端到端流程，结果写入 `docs/eval-report.md`：
 
 ```powershell
 .venv\Scripts\python.exe scripts\eval_ai.py
@@ -277,14 +278,23 @@ RTX 4060 Laptop（8 GB）实测：Qwen2.5-3B Q4 占显存约 2.4 GB，生成速�
 
 | 指标 | 结果 |
 | --- | --- |
-| 检索命中率（top-4 含正确文档） | 100% |
-| Top-1 命中率（相似度最高即正确文档） | 69% |
-| 回答关键词覆盖率 | 100% |
-| 平均问答延迟 | 6.1 s |
+| 检索命中率（top-4 含正确文档） | 85% |
+| Top-1 命中率（相似度最高即正确文档） | 58% |
+| 回答关键词覆盖率 | 85% |
+| 检索与关键词同时满足 | 85% |
+| 平均问答延迟 | 6.3 s |
 | 出题结构合法率（4 选项且答案合法） | 100% |
 | 出题重复（同题干） | 0 / 9 |
 
-需要说明的是：这一轮语料只有 3 篇笔记、3 个文本块，而 `TOP_K=4`，所以「top-4 命中」几乎是必然的，真正有信息量的是 **Top-1 命中率 69%**——说明向量检索在大方向对，但最相似的那一段仍可能被相近主题抢走，这也是 RAG 里要保留多路召回而不是只看第一条的原因。语料规模扩大后这两个数字会更有参考价值。
+语料是 6 篇课程笔记（数据结构 / 番茄工作法 / 梯度下降 / HTTP 与 REST / 数据库索引），每篇 1 个文本块，`TOP_K=4`。33 题里没命中的 5 题集中在「数据库索引」和少数边界问法上：模型会诚实回答「资料中没有相关内容」，而不是编造——这符合 RAG 的预期行为，但检索召回还有提升空间。
+
+一个实测出来的细节：`nomic-embed-text` 是按「任务前缀」训练的，入库文本要加 `search_document: `、检索问题要加 `search_query: `，之前不加前缀时关键词覆盖率只有 76%，加上后升到 85%。换 embedding 模型或改了前缀策略后，用 `scripts/reindex_embeddings.py` 把已有资料的向量重算一遍即可：
+
+```powershell
+.venv\Scripts\python.exe scripts\reindex_embeddings.py
+```
+
+如果要继续提升中文检索效果，下一步是把向量模型换成 `bge-m3`（多语言，中文明显更强），前端与接口都不用改。
 
 ## 后续改进方向
 

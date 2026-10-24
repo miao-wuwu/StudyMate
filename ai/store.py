@@ -189,6 +189,30 @@ def list_chunks(doc_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def update_chunk_vectors(doc_id: int, vectors: list[list[float]]) -> int:
+    """按 seq 顺序覆盖某篇文档所有分块的向量，返回更新条数。
+
+    用途：换 embedding 模型、或模型侧改了前缀策略后，用新向量重建旧数据。
+    """
+    if not vectors:
+        return 0
+    updated = 0
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text("SELECT id FROM chunks WHERE document_id = :d ORDER BY seq"),
+            {"d": doc_id},
+        ).scalars().all()
+        if len(rows) != len(vectors):
+            raise ValueError(f"向量数({len(vectors)})与分块数({len(rows)})不一致")
+        for chunk_id, vector in zip(rows, vectors):
+            conn.execute(
+                text("UPDATE chunks SET embedding = :v, dim = :n WHERE id = :i"),
+                {"v": _to_blob(vector), "n": len(vector), "i": chunk_id},
+            )
+            updated += 1
+    return updated
+
+
 def delete_document(doc_id: int) -> bool:
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM chunks WHERE document_id = :d"), {"d": doc_id})

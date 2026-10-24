@@ -43,6 +43,10 @@ KEEP_ALIVE = os.getenv("LLM_KEEP_ALIVE", "5m")  # 空闲 5 分钟卸载显存
 TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
 REQUEST_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "120"))
 
+# 对话历史裁剪：留出上下文给模型回答，避免多轮之后超出 num_ctx
+HISTORY_MAX_CHARS = int(os.getenv("LLM_HISTORY_MAX_CHARS", "6000"))
+HISTORY_MAX_MESSAGES = int(os.getenv("LLM_HISTORY_MAX_MESSAGES", "20"))
+
 # 文档问答（RAG）参数
 CHUNK_SIZE = int(os.getenv("RAG_CHUNK_SIZE", "500"))
 CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "80"))

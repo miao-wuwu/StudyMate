@@ -71,12 +71,22 @@ def _ollama_chat(messages: list[dict], temperature: float, num_ctx: int) -> str:
         raise LLMError(f"Ollama 返回结构不符合预期: {str(data)[:300]}") from exc
 
 
-def _ollama_embed(texts: list[str]) -> list[list[float]]:
+def _ollama_embed(texts: list[str], kind: str = "document") -> list[list[float]]:
+    # nomic-embed-text 是按「任务前缀」训练的：文档用 search_document，检索用 search_query，
+    # 不加前缀时相似度排序会明显变差（实测 top-1 命中率差 10 个点以上）。
+    model = (config.OLLAMA_EMBED_MODEL or "").split(":")[0]
+    prefix = ""
+    if model == "nomic-embed-text":
+        prefix = "search_document: " if kind == "document" else "search_query: "
     vectors = []
     for text in texts:  # /api/embeddings 一次只吃一条
         data = _post_json(
             f"{config.OLLAMA_HOST}/api/embeddings",
-            {"model": config.OLLAMA_EMBED_MODEL, "prompt": text, "keep_alive": config.KEEP_ALIVE},
+            {
+                "model": config.OLLAMA_EMBED_MODEL,
+                "prompt": prefix + text,
+                "keep_alive": config.KEEP_ALIVE,
+            },
         )
         vector = data.get("embedding")
         if not vector:
@@ -107,6 +117,69 @@ def _deepseek_chat(messages: list[dict], temperature: float, num_ctx: int) -> st
         raise LLMError(f"DeepSeek 返回结构不符合预期: {str(data)[:300]}") from exc
 
 
+# ==================== 上下文裁剪 ====================
+
+_TRIM_NOTICE = "（为节省上下文，更早的对话已省略）"
+
+
+def trim_messages(
+    messages: Iterable[dict],
+    *,
+    max_chars: int | None = None,
+    max_messages: int | None = None,
+) -> tuple[list[dict], bool]:
+    """把多轮对话裁到预算内，返回 (裁剪后的消息, 是否发生了裁剪)。
+
+    规则：
+    1. system 消息永远保留（放在最前面，多条会合并成一条）；
+    2. 其余消息从最新往前累加，超出字符预算或条数上限就丢弃更早的；
+    3. 至少保留最后一条；若它自己就超预算，则截断正文并加省略号；
+    4. 真正发生裁剪时，在 system 之后插一条简短提示，让模型知道有历史被省略。
+    """
+    budget = config.HISTORY_MAX_CHARS if max_chars is None else max_chars
+    limit = config.HISTORY_MAX_MESSAGES if max_messages is None else max_messages
+    msgs = [m for m in messages if isinstance(m, dict) and m.get("role")]
+
+    systems = [m for m in msgs if m.get("role") == "system"]
+    rest = [m for m in msgs if m.get("role") != "system"]
+    if not rest:
+        return systems, False
+
+    system_chars = sum(len(m.get("content") or "") for m in systems)
+    budget = max(budget - system_chars, 200)
+
+    kept: list[dict] = []
+    used = 0
+    trimmed = False
+    for message in reversed(rest):
+        content = message.get("content") or ""
+        cost = len(content)
+        if kept and (used + cost > budget or len(kept) >= limit):
+            trimmed = True
+            break
+        if not kept and cost > budget:
+            # 单条消息就超预算：截断它自己
+            trimmed = True
+            content = content[:budget] + "…"
+            cost = len(content)
+        kept.append({"role": message["role"], "content": content})
+        used += cost
+
+    kept.reverse()
+    if len(kept) < len(rest):
+        trimmed = True
+
+    # system 与提示语合并成一条，避免出现多个 system 消息
+    system_text = "\n".join(m.get("content") or "" for m in systems).strip()
+    if trimmed:
+        system_text = f"{system_text}\n{_TRIM_NOTICE}".strip()
+    result: list[dict] = []
+    if system_text:
+        result.append({"role": "system", "content": system_text})
+    result.extend(kept)
+    return result, trimmed
+
+
 # ==================== 统一入口 ====================
 
 def chat(
@@ -119,6 +192,7 @@ def chat(
     msgs = list(messages)
     if not msgs:
         raise LLMError("messages 不能为空")
+    msgs, _ = trim_messages(msgs)
     temp = config.TEMPERATURE if temperature is None else temperature
     ctx = config.NUM_CTX if num_ctx is None else num_ctx
 
@@ -129,13 +203,14 @@ def chat(
     raise LLMError(f"未知的 LLM_PROVIDER: {config.LLM_PROVIDER}")
 
 
-def embed(texts: Iterable[str]) -> list[list[float]]:
+def embed(texts: Iterable[str], kind: str = "document") -> list[list[float]]:
+    """kind="document" 用于入库文本块，"query" 用于检索问题（部分模型需要不同前缀）。"""
     items = [t for t in texts if t and t.strip()]
     if not items:
         return []
     if config.LLM_PROVIDER != "ollama":
         raise LLMError("embedding 目前只走本地 Ollama（DeepSeek 未开放 embedding 接口）")
-    return _ollama_embed(items)
+    return _ollama_embed(items, kind=kind)
 
 
 def health() -> dict:

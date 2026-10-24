@@ -136,7 +136,7 @@ def remove_document(doc_id: int) -> dict:
 @router.post("/search")
 def search(payload: SearchRequest) -> dict:
     try:
-        vector = llm.embed([payload.query])[0]
+        vector = llm.embed([payload.query], kind="query")[0]
     except llm.LLMError as exc:
         raise HTTPException(status_code=_BAD_GATEWAY, detail=str(exc)) from exc
     hits = store.search(vector, top_k=payload.top_k)
