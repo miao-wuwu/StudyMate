@@ -187,6 +187,74 @@ python -m pytest tests -v
 - 笔记和任务 API 自动化测试
 - Git 版本管理与 GitHub Actions 持续集成
 
+## AI 学习助手（本地大模型）
+
+学习笔记、计划、打卡之外，StudyMate 还带了一个**完全跑在本机**的 AI 模块：不联网、不花钱、不上传任何数据。
+
+### 组成
+
+- **推理**：Ollama + Qwen2.5-3B-Instruct（GGUF Q4_K_M，约 2.1 GB），通过 `ollama create` 从本地 GGUF 导入为 `studymate-qwen`
+- **向量**：Ollama `nomic-embed-text`（274 MB），把文本块映射成 768 维向量
+- **检索**：numpy 暴力余弦相似度（向量以 float32 BLOB 存在同一个 `studymate.db` 里，新增 `documents` / `chunks` 两张表，不用额外向量库）
+- **解析**：PyMuPDF 抽取 PDF 文本，按「段 → 句」贪心分块（500 字 / 重叠 80 字）
+
+### 接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/ai/health` | 探活，返回模型名、向量模型、资料库统计 |
+| POST | `/ai/chat` | 多轮对话（`messages: [{role, content}]`） |
+| POST | `/ai/ask` | 基于资料库提问，返回 `answer` + `sources`（含相似度） |
+| GET | `/ai/documents` | 资料列表 |
+| POST | `/ai/documents` | 直接提交纯文本入库 |
+| POST | `/ai/documents/upload` | 上传 `.txt/.md/.pdf` 文件入库 |
+| DELETE | `/ai/documents/{id}` | 删除资料（连带删除其文本块） |
+| POST | `/ai/search` | 只做检索，返回命中的文本块 |
+| POST | `/ai/summary` | 总结资料：返回 `summary` + `points`（要点列表），可指定 `document_id` 或整库 |
+| POST | `/ai/quiz` | 按资料出选择题：返回题干、四个选项、正确答案与解析，`count` 默认 3 |
+
+资料库为空时，`/ai/ask` 会自动退化为普通对话（返回 `mode: "chat"`）；有资料时返回 `mode: "rag"` 并在答案里标注 `[1] [2]` 来源。
+
+### 启动
+
+```powershell
+# 1. 启动 Ollama（安装后一般开机自启）
+ollama serve
+
+# 2. 准备模型
+ollama create studymate-qwen -f _downloads\Modelfile.qwen25-3b
+ollama pull nomic-embed-text
+
+# 3. 启动后端与前端
+uvicorn main:app --reload
+cd frontend; npm install; npm run dev
+```
+
+前端打开后切到「AI 助手」标签：左边对话（可勾选「结合资料回答」），右边上传资料、查看与删除。
+
+对话区上方还有两个按钮：
+
+- **总结资料**：对整库（或指定文档）生成一段摘要和 5 条要点
+- **出 3 道题**：按资料出选择题，点选项立刻判对错并显示解析
+
+### 关于出题质量
+
+本地跑的是 3B 的小模型，出题能力有限：偶尔会出现「多个选项都说得通」或者题目之间问得太像的情况。代码里已经做了三层兜底——prompt 明确要求每题考不同知识点、禁止「下列描述正确的是」这类只有语序差异的选项；解析阶段丢弃答案不在 A/B/C/D 或无选项的题目；再按题干和选项集去重。如果对题目质量要求高，把 `OLLAMA_MODEL` 换成 7B（`qwen2.5:7b-instruct-q4_k_m`，约 4.7 GB，8 GB 显存可单独跑）会明显更稳。
+
+### 可配置项
+
+复制 `.env.example` 为 `.env` 后按需修改，默认值即可在本机零成本运行：
+
+- `LLM_PROVIDER`：`ollama`（默认）或 `deepseek`
+- `OLLAMA_MODEL` / `OLLAMA_EMBED_MODEL` / `OLLAMA_HOST`
+- `NUM_CTX`、`KEEP_ALIVE`（空闲多久卸载模型，默认 5m）、`TEMPERATURE`
+- `CHUNK_SIZE`、`CHUNK_OVERLAP`、`TOP_K`
+- 切到 `deepseek` 时需要 `DEEPSEEK_API_KEY`（放 `.env`，已在 `.gitignore` 中忽略）
+
+### 显存与性能参考
+
+RTX 4060 Laptop（8 GB）实测：Qwen2.5-3B Q4 占显存约 2.4 GB，生成速度约 12 tokens/s，首次加载约 30 秒；`keep_alive` 到期后自动卸载，不常驻占卡。显存不足时 Ollama 会自动把部分层放到 CPU（`ollama ps` 可见），只是变慢，不会崩。
+
 ## 后续改进方向
 
 - 增加用户注册、登录和个人数据隔离

@@ -5,6 +5,7 @@ import CheckinPanel from "./CheckinPanel";
 import TimerPanel from "./TimerPanel";
 import DashboardPanel from "./DashboardPanel";
 import AchievementsPanel from "./AchievementsPanel";
+import AiPanel from "./AiPanel";
 
 type Note = {
   id: number;
@@ -46,8 +47,23 @@ function todayString() {
 
 function App() {
   const [page, setPage] = useState<
-    "notes" | "tasks" | "checkin" | "timer" | "dashboard" | "achievements"
-  >("notes");
+    "notes" | "tasks" | "checkin" | "timer" | "dashboard" | "achievements" | "ai"
+  >(() => {
+    // 支持 ?page=ai 这样的深链接，方便直接打开某个面板
+    const requested = new URLSearchParams(window.location.search).get("page");
+    const allowed = [
+      "notes",
+      "tasks",
+      "checkin",
+      "timer",
+      "dashboard",
+      "achievements",
+      "ai",
+    ] as const;
+    return (allowed as readonly string[]).includes(requested ?? "")
+      ? (requested as (typeof allowed)[number])
+      : "notes";
+  });
 
   // 笔记数据
   const [notes, setNotes] = useState<Note[]>([]);
@@ -565,6 +581,14 @@ function App() {
           type="button"
         >
           🏆 学习成就
+        </button>
+
+        <button
+          className={`main-tab ${page === "ai" ? "active" : ""}`}
+          onClick={() => setPage("ai")}
+          type="button"
+        >
+          ✧ AI 助手
         </button>
       </nav>
 
@@ -1138,6 +1162,8 @@ function App() {
         <TimerPanel />
       ) : page === "dashboard" ? (
         <DashboardPanel />
+      ) : page === "ai" ? (
+        <AiPanel />
       ) : (
         <AchievementsPanel />
       )}

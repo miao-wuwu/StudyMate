@@ -599,3 +599,10 @@ def create_study_session(
     db.refresh(record)
 
     return study_session_dict(record)
+
+
+# ==================== AI 能力（阶段一：本地模型对话） ====================
+
+from ai.router import router as ai_router  # noqa: E402  放最后，避免循环导入
+
+app.include_router(ai_router)
