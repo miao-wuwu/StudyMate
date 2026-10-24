@@ -1,128 +1,89 @@
-# StudyMate — 全栈学习管理平台
+# StudyMate
 
-StudyMate 是一个面向个人学习场景的全栈学习管理平台，帮助用户管理学习笔记、规划学习任务、记录每日打卡，并通过专注计时与学习统计追踪学习进度。
+一个面向个人学习的全栈平台：笔记、任务、打卡、专注计时、统计与成就徽章，外加一个**完全跑在本机、不联网、零成本**的 AI 学习助手（RAG）。
 
-项目采用 **React + TypeScript** 构建前端，使用 **Python + FastAPI** 构建后端，并通过 **SQLite + SQLAlchemy** 实现学习数据的持久化存储。
+前端 React 19 + TypeScript + Vite，后端 FastAPI + SQLAlchemy + SQLite，AI 侧用 Ollama 跑 Qwen2.5-3B 与 nomic-embed-text，向量直接落在同一个 SQLite 里。
 
-本项目主要用于实践前后端分离开发、REST API 设计、数据库操作、自动化测试和持续集成。
+**这个项目想回答的问题**：
+
+- 一个没有任何云服务的个人项目，能不能把「大模型 + 私有资料」做成本地可用的形态？—— 能，30 秒内起服务，问答带出处，全程离线。
+- 小模型（3B）的能力边界在哪？—— 有实测数据：33 题端到端评估，Top-1 检索命中 58%，关键词覆盖 85%，出题结构 100% 合法但仍有歧义。
+- 怎么让「能跑」变成「可信」？—— 51 个后端测试、GitHub Actions、3 层解析护栏、可复现的评估脚本。
+
+---
+
+## 目录
+
+- [功能](#功能)
+- [项目预览](#项目预览)
+- [技术栈](#技术栈)
+- [快速开始](#快速开始)
+- [项目结构](#项目结构)
+- [AI 学习助手](#ai-学习助手)
+- [效果评估](#效果评估)
+- [设计要点](#设计要点)
+- [测试与 CI](#测试与-ci)
+- [已知限制与后续计划](#已知限制与后续计划)
+
+---
+
+## 功能
+
+| 模块 | 说明 |
+| --- | --- |
+| 学习笔记 | 增删改查、按关键词搜索、按分类筛选 |
+| 学习计划 | 任务增删改查、切换完成状态、按状态/分类筛选 |
+| 每日打卡 | 每天一次（数据库唯一约束兜底）、日历视图、累计与连续天数 |
+| 专注计时 | 15 / 25 / 45 / 60 分钟预设（接口支持 1–240），按 `endAt` 时间戳计时，结束写入学习时段 |
+| 学习仪表盘 | 汇总打卡、专注时长、任务完成数与笔记数 |
+| 成就徽章 | 10 项徽章，按打卡/专注/任务/笔记数据自动点亮，未解锁显示进度 |
+| **AI 学习助手** | 本地大模型多轮对话；上传 PDF/Markdown/TXT 后基于资料问答并标注出处；一键总结要点；按资料出选择题并即时判对错 |
 
 ## 项目预览
 
-### 学习统计仪表盘
+AI 助手（带出处的资料问答）：
 
-![StudyMate 学习统计仪表盘](screenshots/dashboard.png)
+![AI 学习助手](screenshots/ai.png)
 
-StudyMate 提供学习笔记、任务管理、每日打卡、专注计时和学习统计等功能，帮助用户记录学习过程并追踪学习进度。
+学习统计仪表盘：
 
-## 项目功能
-
-### 1. 学习笔记管理
-- 新增、查看、编辑和删除学习笔记
-- 支持笔记搜索和分类管理
-- 使用 SQLite 持久化保存笔记数据
-
-### 2. 学习任务管理
-- 创建和管理个人学习任务
-- 切换任务完成状态
-- 支持任务查询与筛选
-
-### 3. 每日学习打卡
-- 记录每日学习情况
-- 通过打卡日历查看学习记录
-- 统计累计打卡与连续打卡情况
-
-### 4. 专注计时
-- 使用计时功能辅助专注学习
-- 记录学习时段，为学习统计提供数据
-
-### 5. 学习统计仪表盘
-- 汇总学习相关数据
-- 展示学习进度与统计信息
-
-### 6. 成就徽章
-- 展示学习过程中的阶段性成果
-
-> 说明：具体功能、统计口径和成就解锁规则以当前代码实现为准。
+![学习统计仪表盘](screenshots/dashboard.png)
 
 ## 技术栈
 
-| 模块 | 技术 |
+| 层 | 选型 |
 | --- | --- |
-| 前端框架 | React |
-| 开发语言 | TypeScript、Python |
-| 前端构建工具 | Vite |
-| 页面样式 | CSS |
-| 后端框架 | FastAPI |
-| 数据库 ORM | SQLAlchemy |
-| 数据库 | SQLite |
-| 自动化测试 | pytest、FastAPI TestClient |
-| 持续集成 | GitHub Actions |
-| 版本控制 | Git |
-| 代码托管 | GitHub |
+| 前端 | React 19、TypeScript 6、Vite 8、原生 CSS（无 UI 框架、无状态库） |
+| 后端 | Python 3.13、FastAPI、Pydantic、SQLAlchemy 2 |
+| 存储 | SQLite（业务数据与向量同库） |
+| AI | Ollama · Qwen2.5-3B-Instruct（Q4_K_M）、nomic-embed-text（768 维） |
+| 文档解析 | PyMuPDF，numpy（余弦相似度） |
+| 测试 / CI | pytest、FastAPI TestClient、GitHub Actions |
 
-## 项目结构
+## 快速开始
 
-```text
-StudyMate/
-├── main.py
-├── tests/
-│   ├── test_notes.py
-│   └── test_tasks.py
-├── frontend/
-│   ├── src/
-│   ├── public/
-│   └── package.json
-├── screenshots/
-│   └── dashboard.png
-├── .github/
-│   └── workflows/
-│       └── tests.yml
-├── README.md
-└── studymate.db
-```
-
-> `studymate.db` 为本地运行时使用的 SQLite 数据库文件。数据库文件、Python 虚拟环境、`node_modules` 和构建产物不应作为普通源代码提交。
-
-## 环境要求
-
-开始运行项目前，请准备：
+### 环境要求
 
 - Python 3.13（或经项目验证兼容的版本）
-- Node.js 和 npm
-- Git
+- Node.js 18+ 与 npm
+- （可选，只有用 AI 功能才需要）Ollama，以及约 2.5 GB 磁盘放模型
 
-## 本地运行
-
-前端和后端需要分别启动，并保持各自的终端运行。
-
-### 1. 获取项目代码
+### 1. 后端
 
 ```powershell
 git clone https://github.com/miao-wuwu/StudyMate.git
 cd StudyMate
-```
-
-如果仓库是私有的，需要先获得访问权限。
-
-### 2. 安装并启动后端
-
-在项目根目录 `StudyMate` 中打开 PowerShell：
-
-```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install fastapi "uvicorn[standard]" sqlalchemy pytest httpx
+python -m pip install fastapi "uvicorn[standard]" sqlalchemy pytest httpx numpy pymupdf python-multipart
 python -m uvicorn main:app --reload
 ```
 
-后端启动后，可访问：
+后端跑在 http://127.0.0.1:8000 ，接口文档在 http://127.0.0.1:8000/docs 。
 
-- 后端地址：http://127.0.0.1:8000
-- API 文档：http://127.0.0.1:8000/docs
+### 2. 前端
 
-### 3. 安装并启动前端
-
-另开一个终端，进入前端目录：
+另开一个终端：
 
 ```powershell
 cd frontend
@@ -130,191 +91,185 @@ npm install
 npm run dev
 ```
 
-根据终端输出打开 Vite 提供的本地开发地址，通常为：
+浏览器打开 http://localhost:5173/ （用 `localhost`，不要用 `127.0.0.1`，CORS 白名单里没有它）。
 
-http://localhost:5173/
+任意面板都可以用 `?page=` 深链接直达，例如 http://localhost:5173/?page=ai 。
 
-### 4. 检查前端生产构建
-
-在 `frontend` 目录执行：
+### 3. AI 助手（可选）
 
 ```powershell
-npm run build
+# 准备好推理模型与向量模型
+ollama pull qwen2.5:3b            # 约 1.9 GB；若用本地 GGUF，则改为 ollama create studymate-qwen -f <Modelfile>
+ollama pull nomic-embed-text      # 约 274 MB
+
+# 需要改配置时，从模板复制一份（默认值即可在本机零成本运行）
+copy .env.example .env
 ```
 
-如果构建成功，说明前端代码通过了当前构建流程的检查。
+模型名要和 `.env` 里的 `OLLAMA_MODEL` 对上：默认配置写的是 `studymate-qwen`（用 GGUF 导入的名字），如果你直接 `ollama pull qwen2.5:3b`，把 `.env` 里的 `OLLAMA_MODEL` 改成 `qwen2.5:3b` 即可。
 
-## 自动化测试
+前端切到「AI 助手」标签，右上角徽标变绿（显示模型名与向量模型）即接通。不用 AI 功能的话，前两步就够，笔记/任务/打卡等全部照常工作。
 
-项目使用 pytest 和 FastAPI TestClient 对后端 API 进行自动化测试。
+## 项目结构
 
-目前已编写的测试包括：
-
-- 笔记 API：创建、查询、搜索、编辑和删除，以及不存在的笔记处理
-- 任务 API：创建、查询、切换完成状态、删除和空白标题校验
-
-运行全部测试：
-
-```powershell
-python -m pytest tests -v
+```text
+StudyMate/
+├── main.py                     # FastAPI 入口：13 个业务接口、4 张表、CORS
+├── ai/                         # AI 模块（与业务代码解耦，可单独删掉）
+│   ├── config.py               # .env 解析与全部可调参数
+│   ├── llm.py                  # Ollama / DeepSeek 双 provider、历史裁剪、embedding
+│   ├── store.py                # documents / chunks 两张表、分块检索、向量更新
+│   ├── rag.py                  # 文本抽取（PDF/MD/TXT）→ 分块 → 检索 → 带出处回答
+│   ├── study.py                # 摘要与选择题生成（含解析护栏）
+│   └── router.py               # /ai/* 路由
+├── tests/                      # 51 个测试：业务 CRUD、AI 各层、历史裁剪、前缀
+├── scripts/
+│   ├── eval_ai.py              # 33 题端到端评估，产出 docs/eval-report.md
+│   └── reindex_embeddings.py   # 换 embedding 模型后重算全部向量
+├── docs/eval-report.md         # 评估报告（汇总表 + 逐题明细）
+├── frontend/                   # React + TS + Vite（无 UI 框架、无状态库）
+│   └── src/
+│       ├── App.tsx             # 布局、页面切换、笔记与任务两个面板、数据加载
+│       ├── TimerPanel.tsx      # 专注计时（endAt 时间戳 + 防重复保存）
+│       ├── CheckinPanel.tsx    # 每日打卡与日历
+│       ├── DashboardPanel.tsx  # 学习仪表盘（并行拉四类数据）
+│       ├── AchievementsPanel.tsx # 成就徽章与解锁进度
+│       ├── AiPanel.tsx         # AI 助手：对话 / 资料库 / 总结 / 出题
+│       └── *.css               # 原生 CSS，按面板拆分
+├── .github/workflows/tests.yml # CI：push / PR 跑全量 pytest
+├── .env.example                # AI 模块配置模板
+└── studymate.db                # 本地运行时数据库（不入库）
 ```
 
-测试使用独立的临时数据库，避免测试数据污染日常使用的学习记录。
+## AI 学习助手
 
-项目通过 GitHub Actions 自动执行测试工作流，帮助发现代码修改引入的问题。
+### 工作流
 
-## 数据存储
+```text
+上传 PDF/MD/TXT
+  → PyMuPDF / 文本读取，正则压空白
+  → 按「段 → 句」贪心分块（500 字，重叠 80 字）
+  → nomic-embed-text 逐块向量化（带 search_document: 前缀）
+  → 存进 SQLite 的 chunks 表（float32 BLOB，同库不同表）
 
-项目使用 SQLite 保存学习数据，并通过 SQLAlchemy 操作数据库。
+提问
+  → 问题向量化（带 search_query: 前缀）
+  → numpy 暴力余弦相似度取 top-4
+  → 拼上下文，要求模型标注来源
+  → 返回 answer + sources（标题、块序号、相似度）
+```
 
-本地数据库文件通常位于项目根目录下的 `studymate.db`。首次运行时，后端会根据数据库初始化逻辑创建所需的数据表。
-
-数据库表结构和初始化行为以当前后端模型代码为准。
-
-## 当前开发状态
-
-目前已实现或已验证的内容包括：
-
-- 前后端分离架构
-- React + TypeScript 前端
-- FastAPI 后端及 API 文档
-- 学习笔记的新增、查询、编辑、删除与搜索
-- SQLite 数据持久化
-- 学习任务管理
-- 每日学习打卡
-- 学习统计仪表盘
-- 专注计时与成就界面
-- 笔记和任务 API 自动化测试
-- Git 版本管理与 GitHub Actions 持续集成
-
-## AI 学习助手（本地大模型）
-
-学习笔记、计划、打卡之外，StudyMate 还带了一个**完全跑在本机**的 AI 模块：不联网、不花钱、不上传任何数据。
-
-### 组成
-
-- **推理**：Ollama + Qwen2.5-3B-Instruct（GGUF Q4_K_M，约 2.1 GB），通过 `ollama create` 从本地 GGUF 导入为 `studymate-qwen`
-- **向量**：Ollama `nomic-embed-text`（274 MB），把文本块映射成 768 维向量
-- **检索**：numpy 暴力余弦相似度（向量以 float32 BLOB 存在同一个 `studymate.db` 里，新增 `documents` / `chunks` 两张表，不用额外向量库）
-- **解析**：PyMuPDF 抽取 PDF 文本，按「段 → 句」贪心分块（500 字 / 重叠 80 字）
+资料库为空时，`/ai/ask` 自动退化成普通对话（`mode: "chat"`）；有资料时返回 `mode: "rag"`，答案里带 `[1] [2]` 并能列出每一条的出处。
 
 ### 接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/ai/health` | 探活，返回模型名、向量模型、资料库统计 |
-| POST | `/ai/chat` | 多轮对话（`messages: [{role, content}]`） |
-| POST | `/ai/ask` | 基于资料库提问，返回 `answer` + `sources`（含相似度） |
-| GET | `/ai/documents` | 资料列表 |
-| POST | `/ai/documents` | 直接提交纯文本入库 |
-| POST | `/ai/documents/upload` | 上传 `.txt/.md/.pdf` 文件入库 |
+| GET | `/ai/health` | 探活：模型名、向量模型、资料库统计 |
+| POST | `/ai/chat` | 多轮对话（历史自动裁剪） |
+| POST | `/ai/ask` | 基于资料提问，返回 `answer` + `sources` |
+| POST | `/ai/summary` | 总结资料：`summary` + `points` 列表 |
+| POST | `/ai/quiz` | 出选择题：题干、四选项、答案、解析 |
+| GET / POST | `/ai/documents` | 资料列表 / 提交纯文本入库 |
+| POST | `/ai/documents/upload` | 上传文件入库（`.txt/.md/.markdown/.pdf`） |
 | DELETE | `/ai/documents/{id}` | 删除资料（连带删除其文本块） |
-| POST | `/ai/search` | 只做检索，返回命中的文本块 |
-| POST | `/ai/summary` | 总结资料：返回 `summary` + `points`（要点列表），可指定 `document_id` 或整库 |
-| POST | `/ai/quiz` | 按资料出选择题：返回题干、四个选项、正确答案与解析，`count` 默认 3 |
+| POST | `/ai/search` | 只检索，返回命中的文本块与相似度 |
 
-资料库为空时，`/ai/ask` 会自动退化为普通对话（返回 `mode: "chat"`）；有资料时返回 `mode: "rag"` 并在答案里标注 `[1] [2]` 来源。
+### 模型与性能
 
-### 启动
+本机（RTX 4060 Laptop 8 GB + Qwen2.5-3B Q4_K_M）实测：
 
-```powershell
-# 1. 启动 Ollama（安装后一般开机自启）
-ollama serve
-
-# 2. 准备模型
-ollama create studymate-qwen -f _downloads\Modelfile.qwen25-3b
-ollama pull nomic-embed-text
-
-# 3. 启动后端与前端
-uvicorn main:app --reload
-cd frontend; npm install; npm run dev
-```
-
-前端打开后切到「AI 助手」标签：左边对话（可勾选「结合资料回答」），右边上传资料、查看与删除。
-
-对话区上方还有两个按钮：
-
-- **总结资料**：对整库（或指定文档）生成一段摘要和 5 条要点
-- **出 3 道题**：按资料出选择题，点选项立刻判对错并显示解析
-
-### 关于出题质量
-
-本地跑的是 3B 的小模型，出题能力有限：偶尔会出现「多个选项都说得通」或者题目之间问得太像的情况。代码里已经做了三层兜底——prompt 明确要求每题考不同知识点、禁止「下列描述正确的是」这类只有语序差异的选项；解析阶段丢弃答案不在 A/B/C/D 或无选项的题目；再按题干和选项集去重。如果对题目质量要求高，把 `OLLAMA_MODEL` 换成 7B（`qwen2.5:7b-instruct-q4_k_m`，约 4.7 GB，8 GB 显存可单独跑）会明显更稳。
+- 显存占用约 **2.4 GB**，生成速度约 **12 tokens/s**
+- 首次加载约 30 秒；`KEEP_ALIVE`（默认 5m）到期后自动卸载，不常驻占卡
+- 显存不足时 Ollama 会把部分层放到 CPU（`ollama ps` 可见），只是变慢，不会崩
 
 ### 可配置项
 
-复制 `.env.example` 为 `.env` 后按需修改，默认值即可在本机零成本运行：
+复制 `.env.example` 为 `.env`，全部有可用默认值：
 
-- `LLM_PROVIDER`：`ollama`（默认）或 `deepseek`
-- `OLLAMA_MODEL` / `OLLAMA_EMBED_MODEL` / `OLLAMA_HOST`
-- `NUM_CTX`、`KEEP_ALIVE`（空闲多久卸载模型，默认 5m）、`TEMPERATURE`
-- `CHUNK_SIZE`、`CHUNK_OVERLAP`、`TOP_K`
-- `LLM_HISTORY_MAX_CHARS`（默认 6000）、`LLM_HISTORY_MAX_MESSAGES`（默认 20）：多轮对话的历史预算，超出后从最早的对话开始丢弃，并在 system 提示里加一句「更早的对话已省略」，避免长对话把 `num_ctx` 撑爆
-- 切到 `deepseek` 时需要 `DEEPSEEK_API_KEY`（放 `.env`，已在 `.gitignore` 中忽略）
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `LLM_PROVIDER` | `ollama` | 也可切 `deepseek`（需要 `DEEPSEEK_API_KEY`） |
+| `OLLAMA_MODEL` / `OLLAMA_EMBED_MODEL` | `studymate-qwen` / `nomic-embed-text` | 推理与向量模型 |
+| `NUM_CTX` / `TEMPERATURE` | `4096` / `0.3` | 上下文窗口与随机性 |
+| `KEEP_ALIVE` | `5m` | 空闲多久卸载模型（控制显存） |
+| `CHUNK_SIZE` / `CHUNK_OVERLAP` / `TOP_K` | `500` / `80` / `4` | 分块与检索参数 |
+| `LLM_HISTORY_MAX_CHARS` / `LLM_HISTORY_MAX_MESSAGES` | `6000` / `20` | 多轮历史预算，超出后丢弃最早的对话 |
 
-### 显存与性能参考
+## 效果评估
 
-RTX 4060 Laptop（8 GB）实测：Qwen2.5-3B Q4 占显存约 2.4 GB，生成速度约 12 tokens/s，首次加载约 30 秒；`keep_alive` 到期后自动卸载，不常驻占卡。显存不足时 Ollama 会自动把部分层放到 CPU（`ollama ps` 可见），只是变慢，不会崩。
-
-### 演示流程（3 分钟）
-
-1. **准备**：`ollama serve` → `uvicorn main:app --reload` → `cd frontend && npm run dev`，浏览器打开 `http://localhost:5173/?page=ai`
-2. **看状态**：右上角徽标显示「已连接本地模型 · studymate-qwen · 向量 nomic-embed-text」，说明后端与模型都通了
-3. **上传资料**：把一份课程 PDF 或 Markdown 拖到右侧「上传 PDF / Markdown / TXT」，列表里出现标题、字数和分块数
-4. **带出处提问**：勾选「结合资料回答」，问一个资料里才有答案的问题，回答下方会列出 `[1] 《标题》第 n 段 · 相似度 0.xx`
-5. **总结要点**：点「总结资料」，得到一段摘要 + 要点列表
-6. **出题自测**：点「出 3 道题」，逐题点选项，选对变绿、选错标红并给出解析
-7. **对照实验**：取消勾选再问同一个问题，模型会给出通用回答且没有出处——这一步最能说明 RAG 的作用
-
-### 效果评估
-
-`scripts/eval_ai.py` 用固定题集（33 道问答 + 3 轮出题）跑一遍端到端流程，结果写入 `docs/eval-report.md`：
+`scripts/eval_ai.py` 用固定题集跑端到端流程，结果写入 [docs/eval-report.md](docs/eval-report.md)：
 
 ```powershell
 .venv\Scripts\python.exe scripts\eval_ai.py
 ```
 
-脚本使用独立的临时数据库，不会污染 `studymate.db`。本机（RTX 4060 Laptop + Qwen2.5-3B Q4）实测结果：
+脚本使用临时数据库，不污染 `studymate.db`。**6 篇语料 / 33 道问答 / 3 轮出题**的实测结果：
 
 | 指标 | 结果 |
 | --- | --- |
 | 检索命中率（top-4 含正确文档） | 85% |
-| Top-1 命中率（相似度最高即正确文档） | 58% |
+| **Top-1 命中率**（相似度最高即正确文档） | **58%** |
 | 回答关键词覆盖率 | 85% |
 | 检索与关键词同时满足 | 85% |
 | 平均问答延迟 | 6.3 s |
 | 出题结构合法率（4 选项且答案合法） | 100% |
 | 出题重复（同题干） | 0 / 9 |
 
-语料是 6 篇课程笔记（数据结构 / 番茄工作法 / 梯度下降 / HTTP 与 REST / 数据库索引），每篇 1 个文本块，`TOP_K=4`。33 题里没命中的 5 题集中在「数据库索引」和少数边界问法上：模型会诚实回答「资料中没有相关内容」，而不是编造——这符合 RAG 的预期行为，但检索召回还有提升空间。
+两点必须说清楚，否则这些数字会误导：
 
-一个实测出来的细节：`nomic-embed-text` 是按「任务前缀」训练的，入库文本要加 `search_document: `、检索问题要加 `search_query: `，之前不加前缀时关键词覆盖率只有 76%，加上后升到 85%。换 embedding 模型或改了前缀策略后，用 `scripts/reindex_embeddings.py` 把已有资料的向量重算一遍即可：
+1. **语料只有 6 篇、每篇 1 个文本块，`TOP_K=4`**，所以「top-4 命中 85%」意义有限，真正有信息量的是 **Top-1 58%**。要把它当成通用能力指标是不成立的。
+2. 33 题里没命中的 5 题集中在《数据库索引》与少数边界问法，模型的表现是回答「资料中没有相关内容」而不是编造——这符合 RAG 的预期，但也说明召回还有空间。
+
+一个实测出来的细节：`nomic-embed-text` 按任务前缀训练，入库要加 `search_document: `、检索要加 `search_query: `。不加前缀时关键词覆盖率只有 **76%**，加上后升到 **85%**。换 embedding 模型或改前缀策略后，用下面这条命令重算已有向量：
 
 ```powershell
 .venv\Scripts\python.exe scripts\reindex_embeddings.py
 ```
 
-如果要继续提升中文检索效果，下一步是把向量模型换成 `bge-m3`（多语言，中文明显更强），前端与接口都不用改。
+## 设计要点
 
-## 后续改进方向
+几个面试常被追问的地方，以及当时的取舍：
 
-- 增加用户注册、登录和个人数据隔离
-- 扩充后端接口测试及前端功能测试
-- 完善输入校验、异常处理与用户反馈
-- 优化移动端适配和页面交互体验
-- 探索线上部署方案
+- **打卡的幂等性交给数据库**。`checkins` 表对 `date` 加唯一约束（`uq_checkin_date`），重复打卡在插入时就会失败，不需要先查再插，也就不存在并发下的检查-插入竞争。
+- **写学习时段时做三重校验**：开始时间必须早于结束时间、任务外键必须存在、任务标题用库里查到的值覆盖前端传来的值——避免历史记录因为任务改名而失真。
+- **计时器不信任 `setInterval` 的累加**。用 `endAt` 时间戳现算剩余秒数（`Math.round((endAt - Date.now()) / 1000)`），每 250 ms 刷新一次，这样切后台、锁屏、系统睡眠都不会让计时漂移；再用 `savedRef` 保证同一段计时只保存一次（React StrictMode 下 effect 会跑两次）。
+- **AI 的三层护栏**。prompt 层要求「每题考不同知识点、禁止只有语序差异的选项」；解析层丢弃答案不在 A/B/C/D、或选项少于两个的题目；最后按题干与选项集去重。这样即使 3B 模型跑偏，也不会把明显坏的题返回给前端。
+- **多轮历史必须裁剪**。全量历史迟早撑爆 `num_ctx`，所以按 6000 字符 / 20 条预算从最早开始丢弃，把提示语并进 system（不额外多一条），并保留最后一条用户消息。
+- **向量与业务数据同库**。单独引向量库（FAISS/Chroma）在个人规模上没有收益，`chunks` 表存 float32 BLOB 后 numpy 点积足够快，且备份、迁移只要拷一个 `.db` 文件。
+- **测试隔离靠 fixture**。每个用例用 `tmp_path` 建临时库 + `app.dependency_overrides` 替换 `get_db`，测试之间互不影响，也不会碰日常数据。
 
-以上为后续改进方向，不代表这些功能已经完成。
+## 测试与 CI
 
-## 项目目的
+```powershell
+.venv\Scripts\python.exe -m pytest tests -v
+```
 
-通过开发 StudyMate，实践和巩固：
+| 测试文件 | 覆盖内容 |
+| --- | --- |
+| `test_notes.py` / `test_tasks.py` | 笔记与任务的 CRUD、搜索、切换完成、404 与 422 校验 |
+| `test_ai.py` | health 健壮性、chat 正常与上游错误、入参校验、原有接口不受影响 |
+| `test_rag.py` | 分块边界、入库检索、维度不符跳过、上传接口、空库退化为 chat |
+| `test_study.py` | JSON 解析容错、要点结构兼容、摘要/出题端点、非法题目过滤 |
+| `test_history.py` | 历史裁剪：system 合并、条数上限、单条截断、真实 `chat()` 生效 |
+| `test_embed_prefix.py` | 向量任务前缀：document / query 分别加前缀、其它模型不加 |
 
-- 前后端分离架构设计
-- REST API 设计与调用
-- Python 后端开发
-- React 与 TypeScript 前端开发
-- 关系型数据库与 ORM 操作
-- 前端状态管理
-- 自动化测试与持续集成
-- Git 版本控制和 GitHub 项目管理
+合计 **51 passed**。GitHub Actions（`.github/workflows/tests.yml`）在 push 与 PR 到 `master` 时用 Python 3.13 跑全量测试。
+
+## 已知限制与后续计划
+
+**已知限制（都是实测发现的真实短板）**
+
+- 中文检索依赖 `nomic-embed-text`，Top-1 只有 58%；换 `bge-m3` 预期明显提升，接口与前端不用改。
+- 3B 模型出题仍可能出现「多个选项都说得通」；换 7B（约 4.7 GB）会稳，但生成速度降到一半左右。
+- 资料只支持 `.txt/.md/.pdf`，**不支持 docx**；扫描版 PDF 没有 OCR。
+- 没有用户系统，单机单用户；前端无路由，刷新页面需要靠 `?page=` 深链接。
+- 检索是暴力余弦，语料上万块之后才需要担心性能。
+
+**后续计划**
+
+- 用户注册与数据隔离、前端功能测试、Docker 化与线上部署
+- 换 `bge-m3` 向量模型；评估题集扩到 50 题以上并固定语料版本
+- 支持 docx 解析；把出题改成「先列考点再出题」两段式，降低歧义
+
+以上计划未实现，写在这里是为了让「已完成」与「计划中」的边界清晰。
