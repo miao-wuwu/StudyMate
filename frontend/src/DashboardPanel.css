@@ -2,6 +2,8 @@
 .dashboard-page {
   padding: 8px 0 30px;
   color: #24352d;
+  /* index.css 里 #root 是 text-align:center，这里显式改回左对齐 */
+  text-align: left;
 }
 
 .dashboard-hero {
@@ -14,6 +16,7 @@
   border: 1px solid #e5e9e1;
   border-radius: 22px;
   background: linear-gradient(120deg, #f3f6ed, #fafbf7);
+  text-align: left;
 }
 
 .dashboard-eyebrow {
@@ -28,6 +31,8 @@
   margin: 8px 0;
   font-size: 28px;
   letter-spacing: -0.7px;
+  /* index.css 的 h1/h2 用 --text-h（深色模式下接近白），在浅色卡片上看不见 */
+  color: #24352d;
 }
 
 .dashboard-hero p {
