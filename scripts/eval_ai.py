@@ -1,16 +1,14 @@
 """小规模评估：用固定题集量化 RAG 检索命中率与回答质量。
 
 用法（在项目根目录）：
-    .venv\\Scripts\\python.exe scripts\\eval_ai.py              # 只跑 RAG 基线
-    .venv\\Scripts\\python.exe scripts\\eval_ai.py --agent       # 再跑一遍 Agent 模式并出对比报告
+    .venv\\Scripts\\python.exe scripts\\eval_ai.py
 
 脚本用独立的临时数据库，不会污染 studymate.db；跑完把结果打印成表格，
-同时写到 docs/eval-report.md（RAG）与 docs/eval-report-agent.md（Agent 对比）。
+同时写到 docs/eval-report.md。
 """
 
 from __future__ import annotations
 
-import argparse
 import statistics
 import sys
 import tempfile
@@ -22,10 +20,9 @@ sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import create_engine  # noqa: E402
 
-from ai import agent, config, llm, rag, store, study  # noqa: E402
+from ai import config, llm, rag, store, study  # noqa: E402
 
 REPORT = ROOT / "docs" / "eval-report.md"
-REPORT_AGENT = ROOT / "docs" / "eval-report-agent.md"
 
 DOCS: list[tuple[str, str]] = [
     (
@@ -238,138 +235,14 @@ def write_report(rows: list[dict], mean_latency: float, quiz_stats: dict) -> Non
     print(f"\n报告已写入：{REPORT}")
 
 
-def run_agent_cases() -> tuple[list[dict], dict]:
-    """让 Agent 自己决定调什么工具，再按同一套指标打分。
-
-    检索命中沿用「正确文档标题是否出现在工具观察/引用里」，
-    因为 Agent 模式下模型可能压根不调检索（那就记作未命中）。
-    """
-    rows: list[dict] = []
-    latencies: list[float] = []
-    steps: list[int] = []
-    fallbacks = 0
-    tool_counter: dict[str, int] = {}
-    for question, expected_title, keywords in CASES:
-        started = time.time()
-        try:
-            result = agent.run(question, max_steps=5)
-            answer = result.get("answer", "")
-            observations = " ".join(str(step.get("observation", "")) for step in result.get("steps", []))
-            source_titles = " ".join(str(src.get("title", "")) for src in (result.get("sources") or []))
-            retrieved = expected_title in observations or expected_title in source_titles
-            keyword_hit = all(word in answer for word in keywords)
-            fallback = bool(result.get("fallback"))
-            used = result.get("tools_used") or []
-            for name in used:
-                tool_counter[name] = tool_counter.get(name, 0) + 1
-        except Exception as exc:  # noqa: BLE001
-            answer, retrieved, keyword_hit, fallback, used = f"<出错：{exc}>", False, False, True, []
-        elapsed = time.time() - started
-        latencies.append(elapsed)
-        steps.append(len(used))
-        fallbacks += 1 if fallback else 0
-        rows.append(
-            {
-                "question": question,
-                "expected": expected_title,
-                "retrieval": retrieved,
-                "keyword": keyword_hit,
-                "fallback": fallback,
-                "tools": ",".join(used) or "—",
-                "seconds": elapsed,
-                "answer": answer.replace("\n", " ")[:120],
-            }
-        )
-        print(
-            f"  {'✓' if retrieved and keyword_hit else '×'} {question[:24]:<26}"
-            f" 检索{'命中' if retrieved else '未中'} 关键词{'覆盖' if keyword_hit else '缺失'} "
-            f"{'降级' if fallback else '正经回答'} {elapsed:4.1f}s"
-        )
-    stats = {
-        "fallback_rate": fallbacks / len(rows) if rows else 0.0,
-        "avg_steps": statistics.mean(steps) if steps else 0.0,
-        "avg_latency": statistics.mean(latencies) if latencies else 0.0,
-        "tools": tool_counter,
-    }
-    return rows, stats
-
-
-def write_agent_report(rag_rows: list[dict], rag_latency: float,
-                       agent_rows: list[dict], stats: dict) -> None:
-    def pct(rows: list[dict], key: str) -> float:
-        return sum(1 for row in rows if row[key]) / len(rows) if rows else 0.0
-
-    rag_retrieval, rag_keyword = pct(rag_rows, "retrieval"), pct(rag_rows, "keyword")
-    agent_retrieval, agent_keyword = pct(agent_rows, "retrieval"), pct(agent_rows, "keyword")
-    tools_text = "、".join(f"{name} {count} 次" for name, count in
-                          sorted(stats["tools"].items(), key=lambda kv: -kv[1])) or "—"
-
-    lines = [
-        "# Agent 模式评估报告",
-        "",
-        f"- 生成时间：{time.strftime('%Y-%m-%d %H:%M')}",
-        f"- 模型：{config.OLLAMA_MODEL}（Ollama）· 向量：{config.OLLAMA_EMBED_MODEL}",
-        f"- 语料：{len(DOCS)} 篇课程笔记，共 {store.stats()['chunks']} 个文本块",
-        f"- 题集：同一套 {len(CASES)} 道题，分别用「RAG 直答」和「Agent 规划」各跑一遍",
-        "",
-        "## 对比",
-        "",
-        "| 指标 | RAG 直答 | Agent 模式 |",
-        "| --- | --- | --- |",
-        f"| 检索命中率 | {rag_retrieval:.0%} | {agent_retrieval:.0%} |",
-        f"| 关键词覆盖率 | {rag_keyword:.0%} | {agent_keyword:.0%} |",
-        f"| 平均延迟 | {rag_latency:.1f} s | {stats['avg_latency']:.1f} s |",
-        f"| 平均工具调用 | 1 次（固定检索） | {stats['avg_steps']:.1f} 次 |",
-        f"| 降级率 | 0% | {stats['fallback_rate']:.0%} |",
-        "",
-        f"工具使用分布：{tools_text}",
-        "",
-        "## Agent 明细",
-        "",
-        "| 问题 | 期望文档 | 检索 | 关键词 | 降级 | 工具 | 耗时 | 回答摘录 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
-    ]
-    for row in agent_rows:
-        lines.append(
-            f"| {row['question']} | {row['expected']} | {'✓' if row['retrieval'] else '×'} | "
-            f"{'✓' if row['keyword'] else '×'} | {'是' if row['fallback'] else '否'} | "
-            f"{row['tools']} | {row['seconds']:.1f}s | {row['answer']} |"
-        )
-    lines += [
-        "",
-        "> 读法：Agent 的延迟天然比 RAG 高（多轮规划 + 多次工具调用），换来的好处是",
-        "> 「知道什么时候该查、查哪篇、查完还要不要补」，以及失败时能降级而不是直接报错。",
-        "> 降级率高不是坏事——说明兜底在起作用；真正要盯的是「检索命中」和「关键词覆盖」是否",
-        "> 因为多绕几步反而变差。",
-        "",
-    ]
-    REPORT_AGENT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_AGENT.write_text("\n".join(lines), encoding="utf-8")
-    print(f"\n对比报告已写入：{REPORT_AGENT}")
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="StudyMate AI 模块评估")
-    parser.add_argument("--agent", action="store_true", help="额外跑一遍 Agent 模式并输出对比报告")
-    parser.add_argument("--skip-quiz", action="store_true", help="跳过出题评估")
-    args = parser.parse_args()
-
     print("== 准备语料 ==")
     prepare_corpus()
-
-    print("\n== 问答（RAG 基线）==")
+    print("\n== 问答 ==")
     rows, mean_latency = run_rag()
-    quiz_stats = {"total": 0, "valid": 0, "duplicate": 0, "rounds": 0}
-    if not args.skip_quiz:
-        print("\n== 出题 ==")
-        quiz_stats = run_quiz()
+    print("\n== 出题 ==")
+    quiz_stats = run_quiz()
     write_report(rows, mean_latency, quiz_stats)
-
-    if args.agent:
-        print("\n== 问答（Agent 规划）==")
-        agent_rows, stats = run_agent_cases()
-        write_agent_report(rows, mean_latency, agent_rows, stats)
-
     print("\n完成")
 
 

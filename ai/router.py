@@ -7,15 +7,10 @@
 """
 from __future__ import annotations
 
-import json
-import queue
-import threading
-
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import agent, llm, rag, store, study
+from . import llm, rag, store, study
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -69,11 +64,6 @@ class QuizRequest(BaseModel):
     document_id: int | None = Field(default=None, ge=1)
     text: str | None = None
     count: int = Field(default=3, ge=1, le=10)
-
-
-class AgentRequest(BaseModel):
-    question: str = Field(min_length=1)
-    max_steps: int = Field(default=5, ge=1, le=8)
 
 
 # ==================== 基础 ====================
@@ -197,60 +187,3 @@ def quiz(payload: QuizRequest) -> dict:
         raise HTTPException(status_code=_BAD_GATEWAY, detail=str(exc)) from exc
     result["model"] = _model_name()
     return result
-
-
-# ==================== Agent ====================
-
-@router.get("/agent/tools")
-def agent_tools() -> dict:
-    """工具清单：前端「能力面板」直接渲染，也方便调试时核对提示词。"""
-    return {"tools": agent.tools.SPECS}
-
-
-@router.post("/agent/run")
-def agent_run(payload: AgentRequest) -> dict:
-    """跑一次完整的 Agent 循环，返回答案 + 每步 trace + token 用量。"""
-    try:
-        result = agent.run(payload.question, max_steps=payload.max_steps)
-    except agent.AgentError as exc:
-        raise HTTPException(status_code=_BAD_GATEWAY, detail=str(exc)) from exc
-    result["model"] = _model_name()
-    return result
-
-
-@router.post("/agent/stream")
-def agent_stream(payload: AgentRequest) -> StreamingResponse:
-    """SSE 版：每完成一步推一条事件，前端可以实时画时间线。
-
-    事件格式（data 行 JSON）：
-        {"type": "step", "step": {...}}
-        {"type": "final", "answer": "..."}
-        {"type": "result", ...完整结果...}
-        {"type": "error", "message": "..."}
-    最后以 data: [DONE] 结束。
-    """
-    events: queue.Queue = queue.Queue()
-
-    def worker() -> None:
-        try:
-            result = agent.run(payload.question, max_steps=payload.max_steps, on_event=events.put)
-            events.put({"type": "result", "result": result})
-        except agent.AgentError as exc:
-            events.put({"type": "error", "message": str(exc)})
-        except Exception as exc:  # noqa: BLE001
-            events.put({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
-        finally:
-            events.put(None)
-
-    threading.Thread(target=worker, daemon=True).start()
-
-    def gen():
-        while True:
-            item = events.get()
-            if item is None:
-                break
-            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
