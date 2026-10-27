@@ -8,7 +8,7 @@
 
 - 一个没有任何云服务的个人项目，能不能把「大模型 + 私有资料」做成本地可用的形态？—— 能，30 秒内起服务，问答带出处，全程离线。
 - 小模型（3B）的能力边界在哪？—— 有实测数据：33 题端到端评估，Top-1 检索命中 58%，关键词覆盖 85%，出题结构 100% 合法但仍有歧义。
-- 怎么让「能跑」变成「可信」？—— 51 个后端测试、GitHub Actions、3 层解析护栏、可复现的评估脚本。
+- 怎么让「能跑」变成「可信」？—— 61 个后端测试、GitHub Actions、3 层解析护栏、可复现的评估脚本。
 
 ---
 
@@ -20,6 +20,7 @@
 - [快速开始](#快速开始)
 - [项目结构](#项目结构)
 - [AI 学习助手](#ai-学习助手)
+- [Agent 模式（规划 + 工具调用）](#agent-模式规划--工具调用)
 - [效果评估](#效果评估)
 - [设计要点](#设计要点)
 - [测试与 CI](#测试与-ci)
@@ -38,6 +39,7 @@
 | 学习仪表盘 | 汇总打卡、专注时长、任务完成数与笔记数 |
 | 成就徽章 | 10 项徽章，按打卡/专注/任务/笔记数据自动点亮，未解锁显示进度 |
 | **AI 学习助手** | 本地大模型多轮对话；上传 PDF/Markdown/TXT 后基于资料问答并标注出处；一键总结要点；按资料出选择题并即时判对错 |
+| **Agent 工作台** | 让模型自己规划：先查资料再总结/出题，最多 5 步；页面实时显示每一步的思考、调用的工具与耗时；失败自动降级为普通 RAG 问答 |
 
 ## 项目预览
 
@@ -48,6 +50,10 @@ AI 助手（带出处的资料问答）：
 学习统计仪表盘：
 
 ![学习统计仪表盘](screenshots/dashboard.png)
+
+Agent 工作台（每一步的思考、工具与耗时都可展开）：
+
+![Agent 工作台](screenshots/agent.png)
 
 ## 技术栈
 
@@ -121,8 +127,13 @@ StudyMate/
 │   ├── store.py                # documents / chunks 两张表、分块检索、向量更新
 │   ├── rag.py                  # 文本抽取（PDF/MD/TXT）→ 分块 → 检索 → 带出处回答
 │   ├── study.py                # 摘要与选择题生成（含解析护栏）
+│   ├── agent/                  # Agent 层：规划循环、工具注册表、trace
+│   │   ├── loop.py             # 规划 → 调工具 → 观察 → 收敛，含重试/降级/步数上限
+│   │   ├── tools.py            # 4 个工具（list/search/summarize/quiz）+ JSON Schema
+│   │   ├── prompts.py          # 系统提示词与 JSON 契约
+│   │   └── trace.py            # 每步的 thought / 耗时 / token / 成本
 │   └── router.py               # /ai/* 路由
-├── tests/                      # 51 个测试：业务 CRUD、AI 各层、历史裁剪、前缀
+├── tests/                      # 61 个测试：业务 CRUD、AI 各层、Agent 循环、历史裁剪
 ├── scripts/
 │   ├── eval_ai.py              # 33 题端到端评估，产出 docs/eval-report.md
 │   └── reindex_embeddings.py   # 换 embedding 模型后重算全部向量
@@ -174,6 +185,9 @@ StudyMate/
 | POST | `/ai/documents/upload` | 上传文件入库（`.txt/.md/.markdown/.pdf`） |
 | DELETE | `/ai/documents/{id}` | 删除资料（连带删除其文本块） |
 | POST | `/ai/search` | 只检索，返回命中的文本块与相似度 |
+| GET | `/ai/agent/tools` | Agent 可用的工具清单（名称、描述、参数 Schema） |
+| POST | `/ai/agent/run` | 跑一次 Agent：返回答案、每步轨迹、用量统计 |
+| POST | `/ai/agent/stream` | 同上，但用 SSE 逐步推送（`step`/`final`/`result`/`fallback`/`error`） |
 
 ### 模型与性能
 
@@ -196,12 +210,39 @@ StudyMate/
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` / `TOP_K` | `500` / `80` / `4` | 分块与检索参数 |
 | `LLM_HISTORY_MAX_CHARS` / `LLM_HISTORY_MAX_MESSAGES` | `6000` / `20` | 多轮历史预算，超出后丢弃最早的对话 |
 
+## Agent 模式（规划 + 工具调用）
+
+RAG 是「一问一检索一答」，Agent 是「自己决定要不要查、查什么、查完够不够」。这一层没有换模型、没有引入 LangChain，全部手写，为的是每一步都能讲清楚为什么这么做。
+
+```text
+问题
+  → 模型输出 {"thought", "tool", "args"} 或 {"thought", "final"}
+  → 工具注册表执行（list_notes / search_notes / summarize / quiz）
+  → 观察结果截断到 1500 字回灌上下文
+  → 回到第一步，最多 5 步；最后一步强制要求收敛
+  → 任何一步崩掉 → 降级成 RAG 直答，并在返回里标 fallback
+```
+
+**四条工程护栏**（也是被真实失败教出来的）：
+
+| 护栏 | 解决的问题 | 做法 |
+| --- | --- | --- |
+| JSON 契约 + 纠错重试 | 3B 模型爱在 JSON 外面裹解释、加 ```json 围栏 | 平衡括号抠第一个对象；解析失败带上错误信息重试，最多 2 次 |
+| 重复动作拦截 | 模型原地打转，反复 `search_notes` 同一个问题 | 对 `(tool, args)` 做去重，重复就注入「换个思路或直接回答」 |
+| 步数上限 + 强制收敛 | 无限规划，迟迟不给答案 | `max_steps=5`；最后一步把提示词换成「请直接输出 final」 |
+| 失败降级 | 工具报错、模型胡说文档 id | 捕获所有异常 → `rag.ask()` 兜底，返回里保留已跑的步骤 |
+
+**可观测性**：每一步都记 `thought / tool / args / observation / 耗时 / token / 成本`，`/ai/agent/run` 直接返回 `steps` 与 `totals`，前端把它渲染成时间线。面试时可以打开 console 看真实轨迹，而不是嘴上说「有 trace」。
+
+**真机验证**（`scripts/agent_smoke.py`，Qwen2.5-3B）：`search_notes` 0.91s → `summarize` 0.55s → `final` 1.8s，5.2 秒给出带出处的答案，无降级。第一次跑时模型连续 4 步不收敛（猜文档 id 被工具挡回、然后重复检索），正是上面两条护栏把它拉回正轨的。
+
 ## 效果评估
 
 `scripts/eval_ai.py` 用固定题集跑端到端流程，结果写入 [docs/eval-report.md](docs/eval-report.md)：
 
 ```powershell
-.venv\Scripts\python.exe scripts\eval_ai.py
+.venv\Scripts\python.exe scripts\eval_ai.py              # RAG 基线
+.venv\Scripts\python.exe scripts\eval_ai.py --agent      # 追加 Agent 对比，写 docs/eval-report-agent.md
 ```
 
 脚本使用临时数据库，不污染 `studymate.db`。**6 篇语料 / 33 道问答 / 3 轮出题**的实测结果：
@@ -220,6 +261,28 @@ StudyMate/
 
 1. **语料只有 6 篇、每篇 1 个文本块，`TOP_K=4`**，所以「top-4 命中 85%」意义有限，真正有信息量的是 **Top-1 58%**。要把它当成通用能力指标是不成立的。
 2. 33 题里没命中的 5 题集中在《数据库索引》与少数边界问法，模型的表现是回答「资料中没有相关内容」而不是编造——这符合 RAG 的预期，但也说明召回还有空间。
+
+### RAG 直答 vs Agent 规划（同一套 33 题）
+
+`--agent` 会跑第二遍同样的题，让模型自己决定「查不查、查哪篇、要不要总结」，再按同一套指标打分，报告在 [docs/eval-report-agent.md](docs/eval-report-agent.md)：
+
+| 指标 | RAG 直答 | Agent 模式 |
+| --- | --- | --- |
+| 检索命中率 | 85% | 85% |
+| 关键词覆盖率 | 82% | 79% |
+| 平均延迟 | 0.5 s | 2.6 s |
+| 平均工具调用 | 1 次（固定检索） | 1.2 次 |
+| 降级率 | 0% | 0% |
+
+工具使用分布：`search_notes` 33 次、`summarize` 4 次、`quiz` 1 次。
+
+这组数字最值得讲的是**第一次跑出来的那次失败**：
+
+- 加 few-shot 示例之前，**36% 的题**在「模型没输出合法 JSON」这一步就失败、退化成 RAG——检索指标看着还行（88%），但那是兜底救回来的，不是 Agent 自己干成的。把两个示例（一次工具调用、一次 final）塞进系统提示词后，降级率直接归零。
+- 修好格式之后检索命中与 RAG 持平，说明「多绕一步」没有牺牲召回；关键词覆盖率略低 3 个点，是因为 Agent 用自己的话组织答案，不再复述片段里的原词。
+- 延迟约 5 倍（0.5s → 2.6s），这是规划 + 多轮工具调用的真实成本，换来的是可解释的 `steps` 和「崩了也能降级」。
+
+同样要说清楚：语料还是那 6 篇，这组对比只能证明**机制跑通且可量化**，不能当成通用能力结论。
 
 一个实测出来的细节：`nomic-embed-text` 按任务前缀训练，入库要加 `search_document: `、检索要加 `search_query: `。不加前缀时关键词覆盖率只有 **76%**，加上后升到 **85%**。换 embedding 模型或改前缀策略后，用下面这条命令重算已有向量：
 
@@ -253,8 +316,9 @@ StudyMate/
 | `test_study.py` | JSON 解析容错、要点结构兼容、摘要/出题端点、非法题目过滤 |
 | `test_history.py` | 历史裁剪：system 合并、条数上限、单条截断、真实 `chat()` 生效 |
 | `test_embed_prefix.py` | 向量任务前缀：document / query 分别加前缀、其它模型不加 |
+| `test_agent.py` | Agent 循环：JSON 解析、单步收敛、工具报错、步数上限、重复动作拦截、降级、两个端点 |
 
-合计 **51 passed**。GitHub Actions（`.github/workflows/tests.yml`）在 push 与 PR 到 `master` 时用 Python 3.13 跑全量测试。
+合计 **61 passed**。GitHub Actions（`.github/workflows/tests.yml`）在 push 与 PR 到 `master` 时用 Python 3.13 跑全量测试。
 
 ## 已知限制与后续计划
 
@@ -265,6 +329,7 @@ StudyMate/
 - 资料只支持 `.txt/.md/.pdf`，**不支持 docx**；扫描版 PDF 没有 OCR。
 - 没有用户系统，单机单用户；前端无路由，刷新页面需要靠 `?page=` 深链接。
 - 检索是暴力余弦，语料上万块之后才需要担心性能。
+- Agent 模式比 RAG 直答慢约 5 倍（0.5s → 2.6s），且 3B 模型偶尔会跳过检索直接凭记忆作答；不加 few-shot 示例时 JSON 合规率很差（降级率 36%）。
 
 **后续计划**
 

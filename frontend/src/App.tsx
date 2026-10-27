@@ -6,6 +6,7 @@ import TimerPanel from "./TimerPanel";
 import DashboardPanel from "./DashboardPanel";
 import AchievementsPanel from "./AchievementsPanel";
 import AiPanel from "./AiPanel";
+import AgentPanel from "./AgentPanel";
 
 type Note = {
   id: number;
@@ -47,7 +48,7 @@ function todayString() {
 
 function App() {
   const [page, setPage] = useState<
-    "notes" | "tasks" | "checkin" | "timer" | "dashboard" | "achievements" | "ai"
+    "notes" | "tasks" | "checkin" | "timer" | "dashboard" | "achievements" | "ai" | "agent"
   >(() => {
     // 支持 ?page=ai 这样的深链接，方便直接打开某个面板
     const requested = new URLSearchParams(window.location.search).get("page");
@@ -59,6 +60,7 @@ function App() {
       "dashboard",
       "achievements",
       "ai",
+      "agent",
     ] as const;
     return (allowed as readonly string[]).includes(requested ?? "")
       ? (requested as (typeof allowed)[number])
@@ -589,6 +591,14 @@ function App() {
           type="button"
         >
           ✧ AI 助手
+        </button>
+
+        <button
+          className={`main-tab ${page === "agent" ? "active" : ""}`}
+          onClick={() => setPage("agent")}
+          type="button"
+        >
+          ◎ Agent
         </button>
       </nav>
 
@@ -1164,6 +1174,8 @@ function App() {
         <DashboardPanel />
       ) : page === "ai" ? (
         <AiPanel />
+      ) : page === "agent" ? (
+        <AgentPanel />
       ) : (
         <AchievementsPanel />
       )}

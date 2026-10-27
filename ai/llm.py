@@ -56,7 +56,7 @@ def _get_json(url: str, timeout: float = 5.0) -> dict:
 
 # ==================== Ollama ====================
 
-def _ollama_chat(messages: list[dict], temperature: float, num_ctx: int) -> str:
+def _ollama_chat_raw(messages: list[dict], temperature: float, num_ctx: int) -> dict:
     payload = {
         "model": config.OLLAMA_MODEL,
         "messages": messages,
@@ -64,7 +64,11 @@ def _ollama_chat(messages: list[dict], temperature: float, num_ctx: int) -> str:
         "keep_alive": config.KEEP_ALIVE,   # 空闲多久卸载模型，避免常驻显存
         "options": {"temperature": temperature, "num_ctx": num_ctx},
     }
-    data = _post_json(f"{config.OLLAMA_HOST}/api/chat", payload)
+    return _post_json(f"{config.OLLAMA_HOST}/api/chat", payload)
+
+
+def _ollama_chat(messages: list[dict], temperature: float, num_ctx: int) -> str:
+    data = _ollama_chat_raw(messages, temperature, num_ctx)
     try:
         return data["message"]["content"].strip()
     except (KeyError, TypeError) as exc:
@@ -97,7 +101,7 @@ def _ollama_embed(texts: list[str], kind: str = "document") -> list[list[float]]
 
 # ==================== DeepSeek（OpenAI 兼容） ====================
 
-def _deepseek_chat(messages: list[dict], temperature: float, num_ctx: int) -> str:  # num_ctx 仅保留接口一致
+def _deepseek_chat_raw(messages: list[dict], temperature: float) -> dict:
     if not config.DEEPSEEK_API_KEY:
         raise LLMError("LLM_PROVIDER=deepseek 但没有配置 DEEPSEEK_API_KEY")
     payload = {
@@ -106,11 +110,15 @@ def _deepseek_chat(messages: list[dict], temperature: float, num_ctx: int) -> st
         "temperature": temperature,
         "stream": False,
     }
-    data = _post_json(
+    return _post_json(
         f"{config.DEEPSEEK_BASE_URL}/chat/completions",
         payload,
         headers={"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
     )
+
+
+def _deepseek_chat(messages: list[dict], temperature: float, num_ctx: int) -> str:  # num_ctx 仅保留接口一致
+    data = _deepseek_chat_raw(messages, temperature)
     try:
         return data["choices"][0]["message"]["content"].strip()
     except (KeyError, IndexError, TypeError) as exc:
@@ -200,6 +208,61 @@ def chat(
         return _ollama_chat(msgs, temp, ctx)
     if config.LLM_PROVIDER == "deepseek":
         return _deepseek_chat(msgs, temp, ctx)
+    raise LLMError(f"未知的 LLM_PROVIDER: {config.LLM_PROVIDER}")
+
+
+def chat_detailed(
+    messages: Iterable[dict],
+    *,
+    temperature: float | None = None,
+    num_ctx: int | None = None,
+) -> tuple[str, dict]:
+    """和 chat() 一样，但额外返回用量：{prompt_tokens, completion_tokens, total_tokens, model}。
+
+    Agent 的 trace 要用它统计每步成本；Ollama 本地模型成本记为 0，但 token 数照记。
+    """
+    msgs = list(messages)
+    if not msgs:
+        raise LLMError("messages 不能为空")
+    msgs, _ = trim_messages(msgs)
+    temp = config.TEMPERATURE if temperature is None else temperature
+    ctx = config.NUM_CTX if num_ctx is None else num_ctx
+
+    if config.LLM_PROVIDER == "ollama":
+        data = _ollama_chat_raw(msgs, temp, ctx)
+        try:
+            text = data["message"]["content"].strip()
+        except (KeyError, TypeError) as exc:
+            raise LLMError(f"Ollama 返回结构不符合预期: {str(data)[:300]}") from exc
+        pt = int(data.get("prompt_eval_count") or 0)
+        ct = int(data.get("eval_count") or 0)
+        usage = {
+            "prompt_tokens": pt,
+            "completion_tokens": ct,
+            "total_tokens": pt + ct,
+            "model": config.OLLAMA_MODEL,
+            "cost_usd": 0.0,
+        }
+        return text, usage
+
+    if config.LLM_PROVIDER == "deepseek":
+        data = _deepseek_chat_raw(msgs, temp)
+        try:
+            text = data["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMError(f"DeepSeek 返回结构不符合预期: {str(data)[:300]}") from exc
+        raw_usage = data.get("usage") or {}
+        pt = int(raw_usage.get("prompt_tokens") or 0)
+        ct = int(raw_usage.get("completion_tokens") or 0)
+        usage = {
+            "prompt_tokens": pt,
+            "completion_tokens": ct,
+            "total_tokens": int(raw_usage.get("total_tokens") or pt + ct),
+            "model": config.DEEPSEEK_MODEL,
+            "cost_usd": 0.0,
+        }
+        return text, usage
+
     raise LLMError(f"未知的 LLM_PROVIDER: {config.LLM_PROVIDER}")
 
 
