@@ -1175,7 +1175,7 @@ function App() {
       ) : page === "ai" ? (
         <AiPanel />
       ) : page === "agent" ? (
-        <AgentPanel />
+        <AgentPanel onOpenAi={() => setPage("ai")} />
       ) : (
         <AchievementsPanel />
       )}

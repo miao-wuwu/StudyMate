@@ -526,4 +526,32 @@
   .agent-tools-card {
     position: static;
   }
+}/* 轻提示：这类问题其实用 AI 助手更快 */
+.agent-hint {
+  grid-column: 1 / -1;
+  margin: 0 0 2px;
+  padding: 8px 12px;
+  border-left: 3px solid #7c69d6;
+  border-radius: 8px;
+  background: rgba(124, 105, 214, 0.08);
+  color: #5d5880;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.agent-hint-link {
+  margin: 0 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #7c69d6;
+  font-size: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.agent-hint-link:hover {
+  color: #5f4ec2;
 }

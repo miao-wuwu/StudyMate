@@ -104,7 +104,23 @@ async function readSSE(
   }
 }
 
-function AgentPanel() {
+/* 判断「这个问题一步就能答完吗」。只是给用户的轻提示，不影响实际行为：
+   多步骤任务的信号一出现就不提示，宁可少提醒也不要多管闲事。 */
+const MULTI_STEP = /(再|然后|接着|并且|同时|顺便|总结|概括|出题|选择题|复习|计划|该学|先.{0,8}再|整理|对比|步骤|列出|帮我)/;
+const SIMPLE_ASK = /(是什么|什么意思|为什么|怎么|如何|区别|多少|哪个|定义|解释|作用|原理|是什么关系)/;
+
+function looksSingleStep(question: string): boolean {
+  const text = question.trim();
+  if (!text || text.length > 40) return false;
+  if (MULTI_STEP.test(text)) return false;
+  return SIMPLE_ASK.test(text);
+}
+
+type AgentPanelProps = {
+  onOpenAi?: () => void;
+};
+
+function AgentPanel({ onOpenAi }: AgentPanelProps) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [input, setInput] = useState("");
   const [maxSteps, setMaxSteps] = useState(5);
@@ -353,6 +369,15 @@ function AgentPanel() {
           </div>
 
           <div className="agent-input-row">
+            {!running && looksSingleStep(input) && (
+              <p className="agent-hint">
+                这类问题一步就能答完，用
+                <button type="button" className="agent-hint-link" onClick={() => onOpenAi?.()}>
+                  AI 助手
+                </button>
+                大约 0.5 秒就能出答案；Agent 更适合「先查、再判断、再动手」的多步骤任务。
+              </p>
+            )}
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
