@@ -122,7 +122,19 @@ def test_repeat_call_is_guarded(monkeypatch):
     result = agent.run("重复调用")
     assert executed["n"] == 1              # 第二次没有再真正执行
     assert result["steps"][1]["error"]     # 被记录为重复
-    assert result["answer"] == "好了"
+    # 这句 final 没有引用资料，会被明确标注成通用知识
+    assert result["answer"].endswith("好了")
+    assert "通用知识" in result["answer"]
+
+
+def test_cited_answer_is_not_relabeled(monkeypatch):
+    script = [json.dumps({"thought": "查到了", "final": "番茄钟是 25 分钟。[1] 来源：番茄工作法"})]
+    monkeypatch.setattr(llm, "chat_detailed", _fake_model(script))
+    monkeypatch.setattr(tools, "execute", lambda name, args: ("{}", ""))
+
+    result = agent.run("番茄钟多久")
+    assert result["answer"].startswith("番茄钟是 25 分钟")
+    assert "通用知识" not in result["answer"]
 
 
 def test_tool_error_is_reported_to_model(monkeypatch):

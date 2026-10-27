@@ -109,6 +109,18 @@ def _fallback(question: str, reason: str, trace: Trace | None = None) -> dict:
     }
 
 
+def _label_uncited(answer: str) -> str:
+    """没有引用编号、也没说没找到的回答，明确标成通用知识。
+
+    3B 模型有时直接用自己的知识作答却完全不加引用，看起来像资料里的内容。
+    标注一下，用户一眼能分清「这是我笔记里的」还是「模型自己的」。
+    """
+    text = (answer or "").strip()
+    if not text or re.search(r"\[\d+\]", text) or "通用知识" in text or "没有找到" in text:
+        return text
+    return "补充（通用知识，未引用资料）：\n" + text
+
+
 def run(question: str, *, max_steps: int = MAX_STEPS_DEFAULT,
         temperature: float = 0.2, on_event=None) -> dict:
     """跑一次 Agent，返回 {answer, fallback, steps, totals, tools_used, ...}。
@@ -152,9 +164,12 @@ def run(question: str, *, max_steps: int = MAX_STEPS_DEFAULT,
             kind, payload = parse_action(text)
             if kind == "final":
                 step.thought = payload["thought"]
-                emit({"type": "final", "answer": payload["answer"]})
+                answer = rag.supplement_general(
+                    question, rag.strip_general_citations(payload["answer"]))
+                answer = _label_uncited(answer)
+                emit({"type": "final", "answer": answer})
                 return {
-                    "answer": payload["answer"],
+                    "answer": answer,
                     "fallback": False,
                     "mode": "agent",
                     "steps": trace.to_list(),

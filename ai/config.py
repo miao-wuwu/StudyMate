@@ -51,3 +51,6 @@ HISTORY_MAX_MESSAGES = int(os.getenv("LLM_HISTORY_MAX_MESSAGES", "20"))
 CHUNK_SIZE = int(os.getenv("RAG_CHUNK_SIZE", "500"))
 CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "80"))
 TOP_K = int(os.getenv("RAG_TOP_K", "4"))
+
+# 资料里没有答案时，是否允许补一段「通用知识」（明确标注、不带引用编号）
+GENERAL_FALLBACK = os.getenv("AI_GENERAL_FALLBACK", "1").strip().lower() not in {"0", "false", "no"}
